@@ -1,19 +1,21 @@
 import { NextResponse } from 'next/server';
 import { checkAndRecordUsage } from '@/lib/usage';
 
-// Vercel 免费版默认超时 10 秒，Pro 版 60 秒
-// 我们一次调用完成所有事情，避免超时
-export const maxDuration = 60; // Pro 用户会用到，免费用户最多 10 秒
+export const maxDuration = 60;
+
+interface OptimizeRequest {
+  resume: string;
+  targetJob: string;
+}
 
 export async function POST(request: Request) {
-  // 检查试用限制 + 白名单
   const usage = await checkAndRecordUsage('resume');
   if (!usage.allowed) {
     return NextResponse.json({ error: usage.reason }, { status: 403 });
   }
 
   try {
-    const { resume, targetJob } = await request.json();
+    const { resume, targetJob } = (await request.json()) as OptimizeRequest;
 
     if (!resume || resume.trim().length < 50) {
       return NextResponse.json(
@@ -22,13 +24,19 @@ export async function POST(request: Request) {
       );
     }
 
-    // 一次调用完成所有分析（节省时间）
-    const fullPrompt = buildPrompt(resume, targetJob || '');
+    if (!targetJob || targetJob.trim().length === 0) {
+      return NextResponse.json(
+        { error: '请填写目标岗位（这能让我们给更精准的建议）' },
+        { status: 400 }
+      );
+    }
+
+    const fullPrompt = buildV2Prompt(resume.trim(), targetJob.trim(), resume.includes('[UPLOADED]') || resume.length > 500);
 
     const aiResponse = await callDeepSeek([
       {
         role: 'system',
-        content: '你是一个资深的 HR 简历分析专家。请严格按照用户要求的 JSON 格式输出，不要添加任何解释或 markdown 标记。',
+        content: '你是一个顶级的中国互联网公司资深 HR 总监 + 简历优化专家，拥有 15 年招聘经验，看过 10 万+简历。你既懂"通用简历建议"，更懂"针对具体岗位的具体改写"。请严格按照 JSON 格式输出。',
       },
       {
         role: 'user',
@@ -36,26 +44,28 @@ export async function POST(request: Request) {
       },
     ]);
 
-    // 从 AI 响应中提取 JSON
-    let result;
+    let parsed: any;
     try {
       const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        result = JSON.parse(jsonMatch[0]);
-      } else {
+      if (!jsonMatch) {
         throw new Error('AI 响应中没有 JSON');
       }
+      parsed = JSON.parse(jsonMatch[0]);
     } catch (e) {
-      console.error('JSON 解析失败:', aiResponse);
-      // 返回一个降级的默认结果
-      result = getDefaultResult();
+      console.error('JSON 解析失败:', aiResponse.slice(0, 300));
+      return NextResponse.json(
+        { error: '简历解析失败，请重试（可能是简历格式太特殊）' },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({
       success: true,
-      parsed: result.parsed || {},
-      scores: result.scores || getDefaultScores(),
-      suggestions: result.suggestions || [],
+      targetJob: targetJob.trim(),
+      diagnosis: parsed.diagnosis || [],
+      comparisons: parsed.comparisons || [],
+      rewrite: parsed.rewrite || '',
+      summary: parsed.summary || '',
     });
   } catch (error) {
     console.error('优化出错:', error);
@@ -66,59 +76,135 @@ export async function POST(request: Request) {
   }
 }
 
-function buildPrompt(resume: string, targetJob: string): string {
-  const jobText = targetJob ? `\n目标岗位：${targetJob}` : '';
+function buildV2Prompt(resume: string, targetJob: string, isPdfUpload: boolean): string {
+  const pdfWarning = isPdfUpload ? `
 
-  return `请分析以下简历，并返回严格的 JSON 格式结果（不要任何解释，只返回 JSON）：
+【⚠️ 重要：PDF 来源说明】
+这份简历来自 PDF 上传。PDF 文本提取会**丢失**以下信息：
+- ❌ 图标 / 颜色 / 排版布局
+- ❌ 重点标记（高亮、底色、加粗视觉）
+- ❌ 表格 / 时间线 / 分割线等视觉结构
+- ❌ Logo / 头像等图片
+- ❌ 字号大小、字体差异等视觉层次
 
-【简历内容】
-${resume}${jobText}
+**你看到的"文本看起来乱" ≠ 用户简历真的乱** — 这只是 PDF 提取技术的限制。
 
-【输出格式】
+**你的评分要求（针对 PDF 来源）**：
+- ✅ 只评估**内容质量**：清晰度、量化数据、关键词匹配、岗位匹配度
+- ❌ **不要评分排版 / 视觉 / 图标使用** — 你看不到这些
+- ❌ 如果文本片段不连贯，**不要假设是用户排版差**，那是 PDF 提取问题
+- ❌ **不要因为 PDF 提取造成的"乱"** 来扣分
+` : '';
+
+  return `你现在是顶级 HR 总监，给一份求职"${targetJob}"岗位的简历做深度优化。${pdfWarning}
+
+【用户简历】
+${resume}
+
+【目标岗位】
+${targetJob}
+
+【任务 — 3 步输出】
+
+## 第 1 步：结构化诊断（必做）
+
+把简历解析成 5 个部分：
+- 基本信息（姓名 / 联系方式 / 工作年限 / 当前职位 / 行业）
+- 教育背景
+- 工作经历
+- 项目经验
+- 技能
+
+每部分按这个标准打分（满分 100 分，分数尽量拉开档次）：
+- 90-100：清晰、详细、有数据、亮点突出
+- 75-89：基本齐全，有亮点但描述不够有力
+- 60-74：明显缺内容或描述粗糙
+- 40-59：需要重大改进
+- 0-39：几乎缺失或严重失分
+
+每部分给一个 score（0-100 整数），一个 verdict（"优秀"/"良好"/"需改进"/"重大问题"），一个 shortComment（一句话说明）。
+
+最后给一个 overallScore（必须是 5 部分 score 的**算术平均值**，四舍五入到整数）和一个 verdict（综合评价）。
+
+**重要**：
+1. overallScore 必须 = (基本信息 + 教育背景 + 工作经历 + 项目经验 + 技能) / 5，四舍五入到整数
+2. 每个 score 必须是 0-100 之间的**整数**
+3. verdict 对应规则：≥85 优秀 / ≥70 良好 / ≥55 需改进 / <55 重大问题
+
+## 第 2 步：找最弱的 3-5 段，给"原文 vs 改后"对比
+
+从简历里挑出 3-5 段**最弱的内容**（"负责网站开发"、"参与了项目"这种笼统描述），每段都要包含：
+
 {
-  "parsed": {
-    "basicInfo": {
-      "name": "候选人姓名",
-      "experience": "工作年限（如 3 年）",
-      "currentTitle": "当前职位",
-      "industry": "所在行业"
-    },
-    "summary": "整体评价（2-3句话）"
-  },
-  "scores": {
-    "scores": {
-      "content": 数字0-100,
-      "ats": 数字0-100,
-      "hrReadability": 数字0-100,
-      "keywordMatch": 数字0-100
-    },
-    "overall": 综合分数0-100,
-    "strengths": ["优点1", "优点2"],
-    "weaknesses": ["缺点1", "缺点2"]
-  },
-  "suggestions": [
-    {
-      "priority": "high/medium/low",
-      "category": "内容/格式/关键词/成果/技能",
-      "issue": "原文中需要改进的具体句子",
-      "suggestion": "具体改进建议",
-      "reason": "为什么这样改会更好"
-    }
-  ]
+  "original": "原文（完整一句话，从简历里复制）",
+  "rewritten": "改写后（符合 ${targetJob} 岗位要求，动词开头 + 量化数据 + 突出成果）",
+  "reason": "为什么这样改（一句话）"
 }
 
-【评分标准】
-- content（内容完整性）：个人信息、教育、经验、技能是否齐全，描述是否详细
-- ats（ATS 友好度）：格式清晰、避免表格图片、关键词突出
-- hrReadability（HR 阅读体验）：动词开头、量化数据、突出成果
-- keywordMatch（关键词匹配度）：与目标岗位关键词的重合度
+**这一步是核心 — 用户最看重的就是看"具体改写"。** 改写不能是空话套话，必须真有信息量。
 
-【要求】
-1. suggestions 必须返回 6-8 条
-2. 高优先级建议至少 2 条
-3. 每条 issue 必须引用原文中的具体句子
-4. suggestion 必须具体可执行
-5. 直接返回 JSON，不要 markdown 代码块标记`;
+## 第 3 步：完整改写版
+
+基于原简历 + 目标岗位 ${targetJob}，重写一份"高分简历"——按以下结构：
+
+【基本信息】
+姓名 / 联系方式 / 工作年限
+
+【教育背景】
+学校 / 专业 / 学历 / 时间
+
+【工作经历】
+（按时间倒序，重写每段经历）
+
+【项目经验】
+（挑选 2-3 个最相关的项目，重写）
+
+【技能】
+（按"熟练 / 掌握 / 了解"分级）
+
+**格式要求**：使用 Markdown 排版（标题用 #，列表用 -）。
+
+## 最后：总结（一段话）
+
+针对目标岗位 ${targetJob}，用 3-5 句话总结：
+- 这份简历最大的 3 个优点
+- 投递 ${targetJob} 岗位的竞争力评估
+- 1 句话行动建议
+
+【输出格式 — 严格的 JSON 对象】
+{
+  "diagnosis": [
+    {
+      "category": "基本信息",
+      "score": 85,
+      "verdict": "优秀",
+      "comment": "联系方式完整，工作年限清晰"
+    },
+    {
+      "category": "教育背景",
+      "score": 70,
+      "verdict": "良好",
+      "comment": "..."
+    },
+    { "category": "工作经历", "score": 50, "verdict": "需改进", "comment": "..." },
+    { "category": "项目经验", "score": 60, "verdict": "需改进", "comment": "..." },
+    { "category": "技能", "score": 65, "verdict": "需改进", "comment": "..." }
+  ],
+  "overallScore": 66,
+  "overallVerdict": "整体合格（66/100），但工作经历描述过于笼统，需要补充量化数据",
+  "comparisons": [
+    {
+      "original": "负责网站开发",
+      "rewritten": "主导公司主站从 0 到 1 重构，引入 SSR 架构使首屏加载速度提升 65%",
+      "reason": "动词开头 + 量化数据 + 突出成果"
+    },
+    // 至少 3 条，最多 5 条
+  ],
+  "rewrite": "# 完整改写简历\\n\\n## 基本信息\\n...\\n\\n## 教育背景\\n...\\n\\n## 工作经历\\n...\\n\\n## 项目经验\\n...\\n\\n## 技能\\n...",
+  "summary": "针对 ${targetJob} 岗位...（3-5 句话总结）"
+}
+
+请直接返回 JSON 对象，不要任何 markdown 代码块标记。`;
 }
 
 async function callDeepSeek(messages: Array<{ role: string; content: string }>) {
@@ -132,7 +218,7 @@ async function callDeepSeek(messages: Array<{ role: string; content: string }>) 
       model: 'deepseek-chat',
       messages,
       temperature: 0.7,
-      max_tokens: 3000,
+      max_tokens: 4000,
     }),
   });
 
@@ -143,29 +229,4 @@ async function callDeepSeek(messages: Array<{ role: string; content: string }>) 
   }
 
   return data.choices[0].message.content;
-}
-
-function getDefaultScores() {
-  return {
-    scores: { content: 70, ats: 70, hrReadability: 70, keywordMatch: 70 },
-    overall: 70,
-    strengths: [],
-    weaknesses: [],
-  };
-}
-
-function getDefaultResult() {
-  return {
-    parsed: { basicInfo: {}, summary: '简历解析遇到问题，但已尽力评估。' },
-    scores: getDefaultScores(),
-    suggestions: [
-      {
-        priority: 'medium',
-        category: '内容',
-        issue: '简历需要更详细的描述',
-        suggestion: '建议为每段工作经历添加具体成果和量化数据',
-        reason: '量化的成果比笼统的描述更有说服力',
-      },
-    ],
-  };
 }

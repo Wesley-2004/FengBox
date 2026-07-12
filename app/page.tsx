@@ -5,7 +5,7 @@ import AuthNav from "@/components/AuthNav";
 const tools = [
   {
     id: "resume",
-    name: "AI 简历优化器",
+    name: "AI 简历优化",
     description: "上传简历，AI 帮你分析并给出优化建议，生成更专业的简历文案。",
     emoji: "📄",
     status: "ready", // ready = 可用，coming = 敬请期待
