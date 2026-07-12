@@ -50,6 +50,30 @@ const tools = [
     status: "ready",
     href: "/tools/tarot",
   },
+  {
+    id: "xiaohongshu",
+    name: "AI 小红书文案",
+    description: "输入主题，一键生成可直接发布的小红书爆款文案。",
+    emoji: "📕",
+    status: "ready",
+    href: "/tools/xiaohongshu",
+  },
+  {
+    id: "shopping",
+    name: "AI 商品导购",
+    description: "想买什么？AI 帮你看参数、避坑，跳转各大平台比价。",
+    emoji: "🛒",
+    status: "ready",
+    href: "/tools/shopping",
+  },
+  {
+    id: "weekly",
+    name: "AI 周报生成器",
+    description: "输入本周工作要点，AI 一键生成完整周报（4 种风格可选）。",
+    emoji: "📝",
+    status: "ready",
+    href: "/tools/weekly",
+  },
 ];
 
 export default function Home() {
