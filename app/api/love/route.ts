@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { checkAndRecordUsage } from '@/lib/usage';
 
 export const maxDuration = 60;
 
@@ -9,6 +10,12 @@ interface LoveRequest {
 }
 
 export async function POST(request: Request) {
+  // 检查试用限制 + 白名单
+  const usage = await checkAndRecordUsage('love');
+  if (!usage.allowed) {
+    return NextResponse.json({ error: usage.reason }, { status: 403 });
+  }
+
   try {
     const body = await request.json();
     const { message, theirGender, myGender } = body as LoveRequest;

@@ -1,10 +1,17 @@
 import { NextResponse } from 'next/server';
+import { checkAndRecordUsage } from '@/lib/usage';
 
 // Vercel 免费版默认超时 10 秒，Pro 版 60 秒
 // 我们一次调用完成所有事情，避免超时
 export const maxDuration = 60; // Pro 用户会用到，免费用户最多 10 秒
 
 export async function POST(request: Request) {
+  // 检查试用限制 + 白名单
+  const usage = await checkAndRecordUsage('resume');
+  if (!usage.allowed) {
+    return NextResponse.json({ error: usage.reason }, { status: 403 });
+  }
+
   try {
     const { resume, targetJob } = await request.json();
 

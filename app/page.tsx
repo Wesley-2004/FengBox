@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AuthNav from "@/components/AuthNav";
 
 // 工具列表 — 后续添加新工具在这里加一项即可
 const tools = [
@@ -79,6 +80,11 @@ const tools = [
 export default function Home() {
   return (
     <main className="mx-auto max-w-5xl px-6 py-16">
+      {/* 右上角登录区 */}
+      <div className="flex justify-end mb-4 -mt-8">
+        <AuthNav />
+      </div>
+
       {/* 顶部标题区 */}
       <header className="mb-12 text-center">
         <h1 className="text-5xl font-bold tracking-tight text-brand-600">

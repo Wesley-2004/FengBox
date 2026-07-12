@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { checkAndRecordUsage } from '@/lib/usage';
 
 export const maxDuration = 60; // 给 DeepSeek 足够时间生成方案
 
@@ -11,6 +12,12 @@ interface FitnessRequest {
 }
 
 export async function POST(request: Request) {
+  // 检查试用限制 + 白名单
+  const usage = await checkAndRecordUsage('fitness');
+  if (!usage.allowed) {
+    return NextResponse.json({ error: usage.reason }, { status: 403 });
+  }
+
   try {
     const body = await request.json();
     const { height, weight, broadGoal, specificGoal, outputTypes } = body as FitnessRequest;

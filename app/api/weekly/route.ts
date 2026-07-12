@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { checkAndRecordUsage } from '@/lib/usage';
 
 export const maxDuration = 60;
 
@@ -31,6 +32,12 @@ const STYLE_CONFIG: Record<string, { label: string; tone: string; instruction: s
 };
 
 export async function POST(request: Request) {
+  // 检查试用限制 + 白名单
+  const usage = await checkAndRecordUsage('weekly');
+  if (!usage.allowed) {
+    return NextResponse.json({ error: usage.reason }, { status: 403 });
+  }
+
   try {
     const body = await request.json();
     const { points, style } = body as WeeklyRequest;

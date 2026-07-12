@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { checkAndRecordUsage } from '@/lib/usage';
 
 export const maxDuration = 60;
 
@@ -110,6 +111,17 @@ const POSITIONS = [
 ];
 
 export async function POST(request: Request) {
+  // 检查试用限制 + 白名单
+  const usage = await checkAndRecordUsage('tarot');
+
+  // 塔罗 API 有两个 action（shuffle/interpret），只在 interpret 时检查试用
+  if (!usage.allowed) {
+    const body = await request.clone().json().catch(() => ({}));
+    if (body.action === 'interpret') {
+      return NextResponse.json({ error: usage.reason }, { status: 403 });
+    }
+  }
+
   try {
     const body = await request.json();
     const { action } = body;

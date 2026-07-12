@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@cometpisces/tarot-kit-images": "^0.2.0",
+    "@supabase/ssr": "^0.12.0",
     "jspdf": "^2.5.2",
     "next": "16.2.10",
     "pdfjs-dist": "^4.0.379",
