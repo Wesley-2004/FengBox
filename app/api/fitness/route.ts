@@ -4,11 +4,16 @@ import { checkAndRecordUsage } from '@/lib/usage';
 export const maxDuration = 60; // 给 DeepSeek 足够时间生成方案
 
 interface FitnessRequest {
-  height: number;       // 身高 cm
-  weight: number;       // 体重 kg
-  broadGoal: string;    // 宽泛目的：减肥/增肌/塑形/提高体能
-  specificGoal: string; // 具体目标："练腹肌"、"瘦小腿"
-  outputTypes: string[]; // 包含 'workout' / 'nutrition' / 两者
+  height: number;          // 身高 cm
+  weight: number;          // 体重 kg
+  age?: number;            // 年龄（18-80）
+  gender?: string;         // 男 / 女 / 其他
+  broadGoal: string;       // 宽泛目的：减脂 / 增肌 / 塑形 / 提高体能 / 保持健康
+  specificGoal?: string;   // 具体目标：自由文本
+  experience?: string;     // 零基础 / 偶尔运动 / 经常运动
+  equipment?: string;      // 器械 / 场地（自由文本，默认 "无"）
+  sessionMinutes?: number; // 单次可投入时长（30 / 45 / 60 / 90）
+  outputTypes: string[];   // 'workout' / 'nutrition'
 }
 
 export async function POST(request: Request) {
@@ -20,57 +25,96 @@ export async function POST(request: Request) {
 
   try {
     const body = await request.json();
-    const { height, weight, broadGoal, specificGoal, outputTypes } = body as FitnessRequest;
+    const {
+      height, weight, age, gender, broadGoal, specificGoal,
+      experience, equipment, sessionMinutes, outputTypes,
+    } = body as FitnessRequest;
 
-    // 验证必填字段
+    // ---------- 校验 ----------
     if (!height || !weight || height < 100 || height > 250 || weight < 30 || weight > 250) {
       return NextResponse.json(
         { error: '请填写合理的身高(100-250cm)和体重(30-250kg)' },
         { status: 400 }
       );
     }
-
     if (!broadGoal) {
       return NextResponse.json(
         { error: '请选择宽泛健身目的' },
         { status: 400 }
       );
     }
-
     if (!outputTypes || outputTypes.length === 0) {
       return NextResponse.json(
         { error: '请至少选择一种输出类型（运动计划 / 营养搭配）' },
         { status: 400 }
       );
     }
+    if (age !== undefined && age !== null && (age < 10 || age > 100)) {
+      return NextResponse.json(
+        { error: '请填写合理的年龄(10-100)' },
+        { status: 400 }
+      );
+    }
+    if (sessionMinutes !== undefined && sessionMinutes !== null &&
+        ![30, 45, 60, 90].includes(sessionMinutes)) {
+      return NextResponse.json(
+        { error: '请选择有效的单次时长(30/45/60/90 分钟)' },
+        { status: 400 }
+      );
+    }
 
-    // 计算 BMI
-    const bmi = (weight / Math.pow(height / 100, 2));
+    // ---------- 计算 BMI ----------
+    const bmi = weight / Math.pow(height / 100, 2);
     const bmiCategory = getBMICategory(bmi);
 
-    // 构建 prompt
-    const fullPrompt = buildPrompt({
+    // ---------- 构建 prompt ----------
+    const wantsWorkout = outputTypes.includes('workout');
+    const wantsNutrition = outputTypes.includes('nutrition');
+
+    const prompt = buildPrompt({
       height, weight, bmi, bmiCategory,
-      broadGoal, specificGoal: specificGoal || '',
-      outputTypes,
+      age, gender, broadGoal,
+      specificGoal: specificGoal || '',
+      experience: experience || '零基础',
+      equipment: (equipment || '无').trim() || '无',
+      sessionMinutes: sessionMinutes || 45,
+      wantsWorkout,
+      wantsNutrition,
     });
 
-    const aiResponse = await callDeepSeek([
+    // ---------- 调用 DeepSeek ----------
+    const aiText = await callDeepSeek([
       {
         role: 'system',
-        content: '你是一个专业且有同理心的 AI 健身教练。请根据用户的身体数据和目标，给出科学、具体、可执行的方案。回答要温暖友好但不过度承诺健康风险。',
+        content:
+          '你是一个专业、温暖的 AI 健身教练与营养师。' +
+          '根据用户的身体数据和目标，给出具体、可执行、数据清晰的方案。' +
+          '回答用中文。' +
+          (wantsWorkout
+            ? '运动部分给出训练分类（不是按周排期），每张动作卡片必须包含：动作名、组数×次数或时长、建议时长、估算消耗(kcal, 仅参考)、锻炼部位、难度(1-3 颗星)、动作要点。'
+            : '') +
+          (wantsNutrition
+            ? '营养部分给出一日三餐卡片：每餐含菜品清单、卡路里、蛋白质/碳水/脂肪克数(g)，顶部给出当日总热量与三大营养素比例。'
+            : '') +
+          '所有热量与营养素数据必须是合理估算值，并加 "估算" 标注以避免误导。' +
+          '务必只输出合法 JSON，不要输出任何 JSON 之外的文字。',
       },
       {
         role: 'user',
-        content: fullPrompt,
+        content: prompt,
       },
     ]);
+
+    // ---------- 解析 JSON（带兜底） ----------
+    const structured = parseStructured(aiText);
 
     return NextResponse.json({
       success: true,
       bmi: Number(bmi.toFixed(1)),
       bmiCategory,
-      plan: aiResponse,
+      structured,           // 结构化结果（可能为 null → 前端退回 markdown）
+      plan: aiText,         // 原始 markdown 文本（兜底用 & 复制按钮用）
+      warnings: structured?.warnings ?? [],
     });
   } catch (error) {
     console.error('生成健身方案出错:', error);
@@ -80,6 +124,8 @@ export async function POST(request: Request) {
     );
   }
 }
+
+// ---------------- helpers ----------------
 
 function getBMICategory(bmi: number): { label: string; color: string; advice: string } {
   if (bmi < 18.5) {
@@ -114,52 +160,143 @@ function buildPrompt(params: {
   weight: number;
   bmi: number;
   bmiCategory: { label: string; advice: string };
+  age?: number;
+  gender?: string;
   broadGoal: string;
   specificGoal: string;
-  outputTypes: string[];
+  experience: string;
+  equipment: string;
+  sessionMinutes: number;
+  wantsWorkout: boolean;
+  wantsNutrition: boolean;
 }): string {
-  const { height, weight, bmi, bmiCategory, broadGoal, specificGoal, outputTypes } = params;
+  const {
+    height, weight, bmi, bmiCategory,
+    age, gender, broadGoal, specificGoal,
+    experience, equipment, sessionMinutes,
+    wantsWorkout, wantsNutrition,
+  } = params;
 
-  const specificPart = specificGoal ? `\n- 具体目标：${specificGoal}` : '';
+  const schemaSpec = wantsWorkout
+    ? `
+【运动方案 schema】
+{
+  "workout": {
+    "summary": "一段话总结（50-100 字）",
+    "groups": [
+      {
+        "category": "有氧运动" | "力量训练" | "拉伸放松" | "...",
+        "emoji": "🏃" | "💪" | "🧘" | "...",
+        "note": "该类训练的简短说明（一句话）",
+        "exercises": [
+          {
+            "name": "动作名",
+            "sets": "4 组 × 12 次" | "30 分钟匀速" | ...,
+            "durationMin": 8,
+            "caloriesKcal": 60,
+            "muscles": "肩膀、三头",
+            "difficulty": 1 | 2 | 3,
+            "tips": "动作要点（一两句）"
+          }
+        ]
+      }
+    ],
+    "totalDurationMin": 45,
+    "totalCaloriesKcal": 320
+  },`
+    : '';
 
-  const wantsWorkout = outputTypes.includes('workout');
-  const wantsNutrition = outputTypes.includes('nutrition');
+  const nutritionSpec = wantsNutrition
+    ? `
+【营养方案 schema】
+{
+  "nutrition": {
+    "summary": "一段话总结（一日营养策略）",
+    "totalCaloriesKcal": 1800,
+    "macros": { "proteinG": 110, "carbsG": 220, "fatG": 60 },
+    "meals": [
+      {
+        "time": "早餐" | "午餐" | "晚餐" | "加餐",
+        "items": ["燕麦 50g", "鸡蛋 2 个", "..."],
+        "caloriesKcal": 420,
+        "proteinG": 28,
+        "carbsG": 45,
+        "fatG": 12
+      }
+    ],
+    "tips": ["每天饮水 ≥ 1.5L", "..."]
+  },`
+    : '';
 
-  const workoutSection = wantsWorkout ? `
-【运动计划部分】
-- 每周运动几天（建议 3-5 天）
-- 每天每次多长时间（30-60 分钟）
-- 具体动作：热身 → 主训练 → 拉伸
-- 主训练分成有氧 + 力量或自重训练
-- 每个动作写清楚：动作名 / 组数 / 每组次数 / 休息时间
-- 用 emoji 分段让方案清晰易读` : '';
+  const userInfo = [
+    `身高：${height} cm`,
+    `体重：${weight} kg`,
+    `BMI：${bmi.toFixed(1)}（${bmiCategory.label}）`,
+    age ? `年龄：${age} 岁` : '',
+    gender ? `性别：${gender}` : '',
+    `运动经验：${experience}`,
+    `器械 / 场地：${equipment}`,
+    `单次可投入时长：${sessionMinutes} 分钟`,
+    `宽泛目的：${broadGoal}`,
+    specificGoal ? `具体目标：${specificGoal}` : '',
+  ].filter(Boolean).join('\n- ');
 
-  const nutritionSection = wantsNutrition ? `
-【营养搭配部分】
-- 每日总热量建议（基于目标调整）
-- 三大营养素比例：蛋白质 / 碳水 / 脂肪
-- 一日三餐示例（含早餐 / 午餐 / 晚餐 / 加餐）
-- 关键提醒：多喝水、避免极端节食
-- 食材建议：列具体食物名（鸡胸肉、燕麦、糙米等）` : '';
-
-  return `请为以下用户生成个性化的健身方案：
+  return `请为以下用户生成个性化健身与营养方案（以 JSON 输出）：
 
 【用户信息】
-- 身高：${height} cm
-- 体重：${weight} kg
-- BMI：${bmi.toFixed(1)}（${bmiCategory.label}）
-- 宽泛健身目的：${broadGoal}${specificPart}
+- ${userInfo}
 
 【输出要求】
-- 用中文回答，温暖友好但专业
-- 不要给出极端或不安全的建议（比如节食、过量运动）
-- 强调循序渐进
-- 用清晰的 emoji 分段和加粗标记${workoutSection}${nutritionSection}
+1. 严格只输出 JSON（不要 markdown 代码块、不要多余文字、不要注释）
+2. JSON 顶层结构：
+{
+  "disclaimer": "⚠️ 本方案仅供参考，不能替代专业医生或教练。如有健康问题请咨询专业人士。",
+  "warnings": ["重要警示（数组，可空，例如 ['膝关节有问题请避免深蹲']）"],
+  "bmiSummary": "一句对用户 BMI 的解读（30 字内）",
+  ${wantsWorkout ? '"workout": { ... },' : ''}
+  ${wantsNutrition ? '"nutrition": { ... }' : ''}
+}
+3. 只输出用户勾选的部分：${wantsWorkout ? '【运动】' : ''}${wantsWorkout && wantsNutrition ? ' + ' : ''}${wantsNutrition ? '【营养】' : ''}
+4. 动作方案中所有"估算消耗/估算时长"必须是基于该动作的常见经验值，并在文案中加 "估算" 字样
+5. 难度用 1-3 颗星：1=入门 2=进阶 3=高强度
+6. 整体单次时长不要超过用户给的 ${sessionMinutes} 分钟${schemaSpec}${nutritionSpec}
 
-【免责声明】
-请在方案开头加一句简短提醒：'⚠️ 本方案仅供参考，不能替代专业医生或教练的建议。如有健康问题请咨询专业人士。'
+现在直接输出 JSON：`;
+}
 
-请直接输出方案，不要其他解释。`;
+/**
+ * 解析 AI 返回的 JSON。AI 偶尔会包 ```json``` 包裹或加前言，
+ * 先尝试直接 parse，不行再用正则抠第一个 {...} 块再 parse。
+ * 仍失败则返回 null（前端会回退到 markdown 渲染）。
+ */
+function parseStructured(raw: string): any | null {
+  const candidates: string[] = [];
+  candidates.push(raw.trim());
+
+  // 抠 ```json ... ```
+  const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) candidates.push(fence[1].trim());
+
+  // 抠第一个 { 到最后一个 }
+  const first = raw.indexOf('{');
+  const last = raw.lastIndexOf('}');
+  if (first !== -1 && last !== -1 && last > first) {
+    candidates.push(raw.slice(first, last + 1));
+  }
+
+  for (const c of candidates) {
+    try {
+      return JSON.parse(c);
+    } catch {
+      // 尝试去掉尾巴/开头常见的 ",}" 和 ", ]" 等截断性修复
+      try {
+        return JSON.parse(c.replace(/,\s*([}\]])/g, '$1'));
+      } catch {
+        continue;
+      }
+    }
+  }
+  return null;
 }
 
 async function callDeepSeek(messages: Array<{ role: string; content: string }>) {
@@ -172,8 +309,8 @@ async function callDeepSeek(messages: Array<{ role: string; content: string }>) 
     body: JSON.stringify({
       model: 'deepseek-chat',
       messages,
-      temperature: 0.8,    // 比简历优化稍高，方案要有创意
-      max_tokens: 3000,
+      temperature: 0.7,
+      max_tokens: 4000,
     }),
   });
 

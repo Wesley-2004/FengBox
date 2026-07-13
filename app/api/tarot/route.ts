@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { checkAndRecordUsage } from '@/lib/usage';
+import { callDeepSeek, parseJsonResponse } from '@/lib/ai/deepseek';
 
 export const maxDuration = 60;
 
@@ -130,6 +131,8 @@ export async function POST(request: Request) {
       return handleShuffle();
     } else if (action === 'interpret') {
       return handleInterpret(body);
+    } else if (action === 'clarify') {
+      return handleClarify(body);
     } else {
       return NextResponse.json({ error: '未知操作' }, { status: 400 });
     }
@@ -161,8 +164,9 @@ function handleShuffle() {
 async function handleInterpret(body: {
   question: string;
   selectedCards: Array<{ cardId: number; reversed: boolean }>;
+  history?: ClarifyTurn[];
 }) {
-  const { question, selectedCards } = body;
+  const { question, selectedCards, history } = body;
 
   if (!question || question.trim().length === 0) {
     return NextResponse.json({ error: '请输入你的问题' }, { status: 400 });
@@ -192,7 +196,7 @@ async function handleInterpret(body: {
 牌意：${meaning}`;
   }).join('\n\n');
 
-  const fullPrompt = `你是一位富有同理心、温柔且善于倾听的塔罗解读师。请为用户进行一场温暖、有洞察力的塔罗牌解读。
+  const fullPrompt = `你是一位富有同理心、温柔且善于倾听的塔罗解读师，**最擅长把抽象牌意落到用户的实际生活**。请为用户进行一场温暖、有洞察力、**内容丰富**的塔罗牌解读。
 
 【重要立场】
 塔罗牌本质是一种**心理学投射工具和自我反思媒介**，不是预测未来的算命术。
@@ -202,44 +206,60 @@ async function handleInterpret(body: {
 【用户的问题】
 ${question.trim()}
 
+${history && history.length > 0 ? formatHistoryForPrompt(history) : ''}
+
 【5 张牌阵（十字牌阵 — 中间 1 + 四周 4）】
 ${spread}
 
-【解读要求】
-1. 按 5 个位置依次解读（位置 1-5）
-2. 每张牌说明：
-   - 在这个位置上代表什么
-   - 与用户问题的关联
-   - 一句温柔的提醒或建议
-3. 最后给一个**整体总结**：
-   - 牌阵整体讲了一个什么故事
-   - 给用户 1-2 条核心建议
-   - 鼓励性的结束语
+【解读要求 — 务必丰富、有案例】
+每张牌（位置 1-5）的 interpretation 字段必须包含以下 5 个小节，每节 1-3 句中文，**禁止笼统敷衍**：
 
-【输出格式 — JSON 对象】
+1. **【牌意定位】** 这张牌在这个位置（现在/过去/未来/内在/建议）上代表什么意思。要说清"为什么是这个位置"，而不是把牌意复制一遍。
+2. **【结合追问背景】** 把用户最初的问题和追问中提到的具体情况结合进来。**不要泛泛而谈**，要呼应用户提到的具体人物、事件、场景（哪怕追问只补充了"涉及感情"也要落到"现在的感情状态"）。
+3. **【实际案例 / 场景对照】** ★关键★ 举 1-2 个**典型的现实场景**作为对照（比如"如果你最近经常因为这件事失眠，那这张牌在说你可能在...；如果你和对方已经冷战一周，那这张牌反映的是..."），让用户立刻能映射到自己的处境。
+4. **【正逆位差异化解读】** ★关键★ 必须**结合正/逆位**说出不同的解读方向，不能"正位说一遍逆位反向再说一遍"。例如"正位的 XX 反映用户主动选择的勇气；逆位则提醒用户可能在用表面行动回避真正的痛点"。
+5. **【行动建议】** 给出 1 个具体可执行的小动作（不是"加油"这种空话），例如"今天睡前把这件事最坏的结果写下来，你会发现其实没那么可怕"、"跟那个你回避的人说一句'我最近在想...'"。
+
+【整体总结 summary 字段要求 — 4 个小节】
+1. **【牌阵故事】** 把 5 张牌串成一个故事：现在怎么了 → 怎么走到这一步 → 会向哪里发展 → 内在真正的声音 → 该怎么做。要有叙事感，不要堆砌牌意。
+2. **【核心洞察】** 一句话点破牌阵最想告诉用户的事（不超过 50 字，但要有冲击力）。
+3. **【行动清单】** 3 条具体可执行的小动作（按优先级排序）。
+4. **【温暖收尾】** 一段鼓励性的话，不要用"命运掌握在你手中"这种陈词，改用更具体的、贴合用户处境的鼓励。
+
+【输出格式 — JSON 对象，interpretation 字段用换行符分段】
 {
   "cards": [
-    { "position": "现在/核心", "interpretation": "这段解读..." },
-    { "position": "过去/根源", "interpretation": "这段解读..." },
-    { "position": "未来/发展", "interpretation": "这段解读..." },
-    { "position": "内在/自我", "interpretation": "这段解读..." },
-    { "position": "建议/结果", "interpretation": "这段解读..." }
+    {
+      "position": "现在/核心",
+      "interpretation": "【牌意定位】...\\n\\n【结合追问背景】...\\n\\n【实际案例】...\\n\\n【正逆位差异化】...\\n\\n【行动建议】..."
+    },
+    { "position": "过去/根源", "interpretation": "..." },
+    { "position": "未来/发展", "interpretation": "..." },
+    { "position": "内在/自我", "interpretation": "..." },
+    { "position": "建议/结果", "interpretation": "..." }
   ],
-  "summary": "整体总结..."
+  "summary": "【牌阵故事】...\\n\\n【核心洞察】...\\n\\n【行动清单】...\\n\\n【温暖收尾】..."
 }
 
-请直接返回 JSON 对象，不要 markdown 代码块标记。`;
+【硬性要求】
+1. 每张牌 interpretation **至少 350 字**，不要用"省略号"或"如上所述"等敷衍
+2. summary 整体 **至少 400 字**
+3. 不准 markdown 代码块包裹 JSON、不准注释、不准尾部逗号
+4. 如果用户没有追问（直接洗牌），把"结合追问背景"换成"结合用户问题的字面意思"`;
 
-  const aiResponse = await callDeepSeek([
-    {
-      role: 'system',
-      content: '你是一位温暖、有洞察力的塔罗解读师，擅长通过塔罗牌帮助人们自我反思和成长。',
-    },
-    {
-      role: 'user',
-      content: fullPrompt,
-    },
-  ]);
+  const aiResponse = await callDeepSeek(
+    [
+      {
+        role: 'system',
+        content: '你是一位温暖、有洞察力的塔罗解读师，擅长通过塔罗牌帮助人们自我反思和成长。',
+      },
+      {
+        role: 'user',
+        content: fullPrompt,
+      },
+    ],
+    { temperature: 0.85, maxTokens: 5500 },
+  );
 
   // 提取 JSON
   const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
@@ -281,26 +301,164 @@ ${spread}
   });
 }
 
-async function callDeepSeek(messages: Array<{ role: string; content: string }>) {
-  const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${process.env.DEEPSEEK_API_KEY}`,
-    },
-    body: JSON.stringify({
-      model: 'deepseek-chat',
-      messages,
-      temperature: 0.85,
-      max_tokens: 3500,  // 5 张牌 + 总结，token 较多
-    }),
-  });
+// ============================================================================
+//                          追问（clarify）
+// ============================================================================
 
-  const data = await response.json();
+type ClarifyAnswer = string | string[];
 
-  if (!response.ok) {
-    throw new Error(`DeepSeek API 错误: ${JSON.stringify(data)}`);
+type ClarifyTurn = {
+  question: string;          // AI 问的问题
+  type: 'single' | 'multi' | 'boolean';
+  options: string[];         // 候选项
+  answer: ClarifyAnswer;     // 用户答的内容
+};
+
+const MAX_CLARIFY_ROUNDS = 5;
+
+async function handleClarify(body: {
+  question: string;
+  history?: ClarifyTurn[];
+}) {
+  const { question, history = [] } = body;
+
+  if (!question || question.trim().length === 0) {
+    return NextResponse.json({ error: '请输入你的问题' }, { status: 400 });
+  }
+  if (!Array.isArray(history)) {
+    return NextResponse.json({ error: 'history 必须为数组' }, { status: 400 });
   }
 
-  return data.choices[0].message.content;
+  // 已到最大轮数，强制完成
+  if (history.length >= MAX_CLARIFY_ROUNDS) {
+    return NextResponse.json({
+      success: true,
+      infoComplete: true,
+      reason: 'max_rounds',
+      history,
+    });
+  }
+
+  const prompt = buildClarifyPrompt(question.trim(), history);
+  const aiText = await callDeepSeek(
+    [
+      {
+        role: 'system',
+        content:
+          '你是一位富有同理心、擅长倾听的塔罗咨询师。' +
+          '通过少量关键问题把用户的情况摸清，每一题都要"高信号"——' +
+          '问完就能显著影响最终解牌的方向。' +
+          '不要问已经能从上下文推断出的事。' +
+          '只输出合法 JSON，不要 markdown 包裹。',
+      },
+      { role: 'user', content: prompt },
+    ],
+    { temperature: 0.7, maxTokens: 800 },
+  );
+
+  const parsed = parseJsonResponse(aiText);
+  const raw = extractClarifyObj(parsed, aiText);
+  if (!raw) {
+    console.error('clarify AI 响应解析失败:', aiText.slice(0, 200));
+    return NextResponse.json(
+      { error: '追问生成失败，请重试' },
+      { status: 500 }
+    );
+  }
+
+  // 规范化
+  const infoComplete = Boolean(raw.infoComplete);
+  const type = (['single', 'multi', 'boolean'].includes(raw.type) ? raw.type : 'single') as ClarifyTurn['type'];
+  const options = Array.isArray(raw.options)
+    ? raw.options.map((s: any) => String(s).trim()).filter(Boolean).slice(0, 8)
+    : [];
+
+  // boolean 类型自动给是/否选项（如果 AI 没给）
+  const finalOptions = type === 'boolean' && options.length === 0
+    ? ['是', '否']
+    : options;
+
+  return NextResponse.json({
+    success: true,
+    infoComplete,
+    question: String(raw.question || '').trim(),
+    type,
+    options: finalOptions,
+    round: history.length + 1,
+    maxRounds: MAX_CLARIFY_ROUNDS,
+    reason: infoComplete ? (raw.reason || 'enough') : undefined,
+  });
+}
+
+function buildClarifyPrompt(question: string, history: ClarifyTurn[]): string {
+  const historyText = history.length === 0
+    ? '（无 — 这是第一题）'
+    : history.map((h, i) =>
+        `${i + 1}. [问] ${h.question}\n   [类型] ${h.type}\n   [选项] ${h.options.join('、')}\n   [用户答] ${formatAnswer(h.answer)}`
+      ).join('\n');
+
+  return `你正在通过追问帮一位塔罗占卜师把用户的情况摸清。请生成下一题（或判断信息已足够可以结束追问）。
+
+【用户的初始问题】
+${question}
+
+【已经问过的对话】
+${historyText}
+
+【决定 — 二选一】
+A) 如果你认为信息已经足够理解"事情的全貌"（包括：涉及的人/事、关键背景、用户最关心的点），返回 infoComplete=true
+B) 如果还需要更多信息，生成下一题。**最多再问 ${MAX_CLARIFY_ROUNDS - history.length} 题**。
+
+【题目类型 — 三选一】
+- "single"：单选题，2-5 个选项
+- "multi"：多选题，3-6 个选项（用户可多选）
+- "boolean"：判断题，选项固定为 ["是","否"]
+
+【题目设计原则】
+1. **高信号**：每题问完能显著影响解牌方向，避免"无关紧要的细节"
+2. **不重复**：已经问过的不要再问
+3. **易回答**：用户 5 秒内能选完，不需要长文本输入
+4. **具体可选项**：选项要具体（"工作中" / "感情中" / "财务中"），不要抽象（"领域A"）
+
+【输出 — 严格 JSON，不要 markdown】
+{
+  "infoComplete": false,
+  "question": "你想问用户的问题（一句中文，简洁明了）",
+  "type": "single",
+  "options": ["选项1", "选项2", "选项3"],
+  "reason": "为什么问这题（仅给后端日志看，前端不显示，可空）"
+}
+
+如果是 infoComplete:
+{
+  "infoComplete": true,
+  "question": "",
+  "type": "single",
+  "options": [],
+  "reason": "为什么信息够了"
+}`;
+}
+
+function extractClarifyObj(parsed: any, raw: string): any | null {
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed;
+  const m = raw.match(/\{[\s\S]*\}/);
+  if (m) {
+    try { return JSON.parse(m[0]); } catch { return null; }
+  }
+  return null;
+}
+
+function formatAnswer(a: ClarifyAnswer): string {
+  if (Array.isArray(a)) return a.join('、');
+  return a;
+}
+
+function formatHistoryForPrompt(history: ClarifyTurn[]): string {
+  const lines = history.map((h, i) =>
+    `${i + 1}. [问] ${h.question}\n   [答] ${formatAnswer(h.answer)}`
+  );
+  return `【追问对话历史 — 用户补充的背景信息】
+${lines.join('\n')}
+
+（请把这些补充信息和初始问题一起纳入解读，针对用户具体处境给出建议。）`;
 }

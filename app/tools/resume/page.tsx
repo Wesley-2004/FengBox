@@ -589,7 +589,7 @@ export default function ResumePage() {
                 >
                   🎤 进入 AI 模拟面试官
                   <span className="block text-xs font-normal mt-1 opacity-90">
-                    基于这份改写后的简历，AI 面试官会对你提问（白名单功能）
+                    基于这份改写后的简历，AI 面试官会对你提问（会员功能）
                   </span>
                 </button>
               </div>

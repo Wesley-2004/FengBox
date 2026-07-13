@@ -17,63 +17,53 @@ interface Interpretation {
   summary: string;
 }
 
-// 78 张牌的简化信息（前端展示用 — 不调 AI，本地数据）
-const CARD_NAMES: Record<number, string> = {};
+type ClarifyType = 'single' | 'multi' | 'boolean';
+
+interface ClarifyTurn {
+  question: string;
+  type: ClarifyType;
+  options: string[];
+  answer: string | string[];
+}
+
 // 服务端返回的是 cardId (1-78)，前端用这个映射显示对应的塔罗牌 PNG 文件名
-// 文件位于 public/tarot/，由 @cometpisces/tarot-kit-images 包提供
 const CARD_IMAGES: Record<number, string> = {
-  // 大阿尔克那 (1-22)
   1: '00-TheFool', 2: '01-TheMagician', 3: '02-TheHighPriestess', 4: '03-TheEmpress',
   5: '04-TheEmperor', 6: '05-TheHierophant', 7: '06-TheLovers', 8: '07-TheChariot',
   9: '08-Strength', 10: '09-TheHermit', 11: '10-WheelOfFortune', 12: '11-Justice',
   13: '12-TheHangedMan', 14: '13-Death', 15: '14-Temperance', 16: '15-TheDevil',
   17: '16-TheTower', 18: '17-TheStar', 19: '18-TheMoon', 20: '19-TheSun',
   21: '20-Judgement', 22: '21-TheWorld',
-  // 权杖 Wands (23-36)
   23: 'Wands01', 24: 'Wands02', 25: 'Wands03', 26: 'Wands04',
   27: 'Wands05', 28: 'Wands06', 29: 'Wands07', 30: 'Wands08',
   31: 'Wands09', 32: 'Wands10', 33: 'Wands11', 34: 'Wands12',
   35: 'Wands13', 36: 'Wands14',
-  // 圣杯 Cups (37-50)
   37: 'Cups01', 38: 'Cups02', 39: 'Cups03', 40: 'Cups04',
   41: 'Cups05', 42: 'Cups06', 43: 'Cups07', 44: 'Cups08',
   45: 'Cups09', 46: 'Cups10', 47: 'Cups11', 48: 'Cups12',
   49: 'Cups13', 50: 'Cups14',
-  // 宝剑 Swords (51-64)
   51: 'Swords01', 52: 'Swords02', 53: 'Swords03', 54: 'Swords04',
   55: 'Swords05', 56: 'Swords06', 57: 'Swords07', 58: 'Swords08',
   59: 'Swords09', 60: 'Swords10', 61: 'Swords11', 62: 'Swords12',
   63: 'Swords13', 64: 'Swords14',
-  // 金币 Pentacles (65-78)
   65: 'Pentacles01', 66: 'Pentacles02', 67: 'Pentacles03', 68: 'Pentacles04',
   69: 'Pentacles05', 70: 'Pentacles06', 71: 'Pentacles07', 72: 'Pentacles08',
   73: 'Pentacles09', 74: 'Pentacles10', 75: 'Pentacles11', 76: 'Pentacles12',
   77: 'Pentacles13', 78: 'Pentacles14',
 };
 
-// 塔罗牌名映射（前端显示用 — 简化版，主要名字从后端拿）
-// 实际生产环境应该用完整数据库，这里我们硬编码 78 个名字以保证显示
-const TAROT_NAMES: Record<number, string> = {
-  1: '愚者', 2: '魔术师', 3: '女祭司', 4: '皇后', 5: '皇帝', 6: '教皇', 7: '恋人', 8: '战车', 9: '力量', 10: '隐者',
-  11: '命运之轮', 12: '正义', 13: '倒吊人', 14: '死神', 15: '节制', 16: '恶魔', 17: '塔', 18: '星星', 19: '月亮', 20: '太阳',
-  21: '审判', 22: '世界',
-  23: '权杖 A', 24: '权杖 2', 25: '权杖 3', 26: '权杖 4', 27: '权杖 5', 28: '权杖 6', 29: '权杖 7', 30: '权杖 8', 31: '权杖 9', 32: '权杖 10',
-  33: '权杖 侍从', 34: '权杖 骑士', 35: '权杖 皇后', 36: '权杖 国王',
-  37: '圣杯 A', 38: '圣杯 2', 39: '圣杯 3', 40: '圣杯 4', 41: '圣杯 5', 42: '圣杯 6', 43: '圣杯 7', 44: '圣杯 8', 45: '圣杯 9', 46: '圣杯 10',
-  47: '圣杯 侍从', 48: '圣杯 骑士', 49: '圣杯 皇后', 50: '圣杯 国王',
-  51: '宝剑 A', 52: '宝剑 2', 53: '宝剑 3', 54: '宝剑 4', 55: '宝剑 5', 56: '宝剑 6', 57: '宝剑 7', 58: '宝剑 8', 59: '宝剑 9', 60: '宝剑 10',
-  61: '宝剑 侍从', 62: '宝剑 骑士', 63: '宝剑 皇后', 64: '宝剑 国王',
-  65: '金币 A', 66: '金币 2', 67: '金币 3', 68: '金币 4', 69: '金币 5', 70: '金币 6', 71: '金币 7', 72: '金币 8', 73: '金币 9', 74: '金币 10',
-  75: '金币 侍从', 76: '金币 骑士', 77: '金币 皇后', 78: '金币 国王',
-};
-
 const POSITION_LABELS = ['现在 / 核心', '过去 / 根源', '未来 / 发展', '内在 / 自我', '建议 / 结果'];
+
+const MAX_CLARIFY_ROUNDS = 5;
 
 export default function TarotPage() {
   const [question, setQuestion] = useState('');
-  const [phase, setPhase] = useState<'ask' | 'select' | 'result'>('ask');
-  const [deck, setDeck] = useState<number[]>([]); // 洗好的牌顺序
-  const [selectedIds, setSelectedIds] = useState<number[]>([]); // 用户选中的牌 ID（按选择顺序）
+  const [phase, setPhase] = useState<'ask' | 'clarify' | 'select' | 'result'>('ask');
+  const [deck, setDeck] = useState<number[]>([]);
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [flippedIds, setFlippedIds] = useState<number[]>([]);
+  const [reversedMap, setReversedMap] = useState<Record<number, boolean>>({});
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<{
@@ -81,50 +71,142 @@ export default function TarotPage() {
     interpretation: Interpretation;
   } | null>(null);
 
-  // 步骤 1：开始占卜 — 调 shuffle endpoint
-  const startReading = async () => {
+  // 追问状态
+  const [clarifyHistory, setClarifyHistory] = useState<ClarifyTurn[]>([]);
+  const [clarifyQ, setClarifyQ] = useState<{ question: string; type: ClarifyType; options: string[]; round: number } | null>(null);
+
+  // ---------- 追问 ----------
+  const callClarify = async (history: ClarifyTurn[]): Promise<{
+    infoComplete: boolean;
+    question: string;
+    type: ClarifyType;
+    options: string[];
+    round: number;
+  }> => {
+    const response = await fetch('/api/tarot', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'clarify',
+        question: question.trim(),
+        history,
+      }),
+    });
+    const data = await response.json();
+    if (!data.success) throw new Error(data.error || '追问失败');
+    return {
+      infoComplete: Boolean(data.infoComplete),
+      question: String(data.question || '').trim(),
+      type: (data.type || 'single') as ClarifyType,
+      options: Array.isArray(data.options) ? data.options : [],
+      round: data.round || history.length + 1,
+    };
+  };
+
+  const handleStartClarify = async () => {
     if (!question.trim()) {
       setError('请输入你想问的问题');
       return;
     }
-
     setLoading(true);
     setError('');
+    try {
+      const r = await callClarify([]);
+      if (r.infoComplete) {
+        // 第一题就够，跳过追问
+        await proceedToShuffle([]);
+      } else {
+        setClarifyQ({ question: r.question, type: r.type, options: r.options, round: r.round });
+        setClarifyHistory([]);
+        setPhase('clarify');
+      }
+    } catch (e: any) {
+      setError(e.message || '追问失败，请重试');
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  const handleAnswerClarify = async (answer: string | string[]) => {
+    if (!clarifyQ) return;
+    const turn: ClarifyTurn = {
+      question: clarifyQ.question,
+      type: clarifyQ.type,
+      options: clarifyQ.options,
+      answer,
+    };
+    const newHistory = [...clarifyHistory, turn];
+    setClarifyHistory(newHistory);
+    setClarifyQ(null);
+    setLoading(true);
+    setError('');
+    try {
+      const r = await callClarify(newHistory);
+      if (r.infoComplete || newHistory.length >= MAX_CLARIFY_ROUNDS) {
+        await proceedToShuffle(newHistory);
+      } else {
+        setClarifyQ({ question: r.question, type: r.type, options: r.options, round: r.round });
+      }
+    } catch (e: any) {
+      setError(e.message || '追问失败，请重试');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSkipClarify = async () => {
+    setClarifyQ(null);
+    await proceedToShuffle(clarifyHistory);
+  };
+
+  const proceedToShuffle = async (history: ClarifyTurn[]) => {
+    setLoading(true);
     try {
       const response = await fetch('/api/tarot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'shuffle' }),
       });
-
       const data = await response.json();
       if (data.success) {
         setDeck(data.deck);
         setSelectedIds([]);
+        setFlippedIds([]);
+        setReversedMap({});
+        setClueHistoryPersist(history); // 存起来给解牌用
         setPhase('select');
       } else {
         setError(data.error || '洗牌失败，请重试');
+        setPhase('ask');
       }
-    } catch (err) {
+    } catch {
       setError('网络错误，请重试');
+      setPhase('ask');
     } finally {
       setLoading(false);
     }
   };
 
-  // 步骤 2：选牌 — 用户点牌背
+  // 追问历史跨阶段保留（洗牌时持久化、解牌时用）
+  const [persistedClarifyHistory, setPersistedClarifyHistory] = useState<ClarifyTurn[]>([]);
+  const setClueHistoryPersist = (h: ClarifyTurn[]) => setPersistedClarifyHistory(h);
+
+  // ---------- 翻牌 ----------
   const toggleCard = (cardId: number) => {
-    if (selectedIds.includes(cardId)) {
-      // 取消选中
-      setSelectedIds(selectedIds.filter((id) => id !== cardId));
-    } else if (selectedIds.length < 5) {
-      // 选中（最多 5 张）
-      setSelectedIds([...selectedIds, cardId]);
+    const isFlipped = flippedIds.includes(cardId);
+    const isSelected = selectedIds.includes(cardId);
+    if (isFlipped && isSelected) {
+      setFlippedIds((prev) => prev.filter((id) => id !== cardId));
+      setSelectedIds((prev) => prev.filter((id) => id !== cardId));
+    } else if (!isFlipped) {
+      if (selectedIds.length >= 5) return;
+      setFlippedIds((prev) => [...prev, cardId]);
+      setSelectedIds((prev) => [...prev, cardId]);
+      setReversedMap((prev) => ({ ...prev, [cardId]: Math.random() < 0.5 }));
     }
   };
 
-  // 步骤 3：解牌 — 调 interpret endpoint
+  // ---------- 解牌 ----------
   const interpretCards = async () => {
     if (selectedIds.length !== 5) {
       setError('请选择正好 5 张牌');
@@ -135,10 +217,9 @@ export default function TarotPage() {
     setError('');
 
     try {
-      // 实际塔罗有正逆位 — 50% 概率逆位
       const selectedCards = selectedIds.map((id) => ({
         cardId: id,
-        reversed: Math.random() < 0.5,
+        reversed: Boolean(reversedMap[id]),
       }));
 
       const response = await fetch('/api/tarot', {
@@ -148,6 +229,7 @@ export default function TarotPage() {
           action: 'interpret',
           question: question.trim(),
           selectedCards,
+          history: persistedClarifyHistory, // 把追问历史给 AI
         }),
       });
 
@@ -161,7 +243,7 @@ export default function TarotPage() {
       } else {
         setError(data.error || '解牌失败，请重试');
       }
-    } catch (err) {
+    } catch {
       setError('网络错误，请重试');
     } finally {
       setLoading(false);
@@ -173,14 +255,19 @@ export default function TarotPage() {
     setQuestion('');
     setDeck([]);
     setSelectedIds([]);
+    setFlippedIds([]);
+    setReversedMap({});
     setResult(null);
     setError('');
+    setClarifyHistory([]);
+    setClarifyQ(null);
+    setPersistedClarifyHistory([]);
   };
 
+  // ---------- 渲染 ----------
   return (
     <main className="min-h-screen bg-gradient-to-b from-purple-50 to-indigo-100 py-8 px-4">
       <div className="max-w-5xl mx-auto">
-        {/* 返回链接 */}
         <div className="mb-6">
           <Link
             href="/"
@@ -190,16 +277,14 @@ export default function TarotPage() {
           </Link>
         </div>
 
-        {/* 标题 */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-2 mb-3">
             <span className="text-3xl">🔮</span>
             <h1 className="text-3xl font-bold text-gray-800">AI 塔罗占卜</h1>
           </div>
-          <p className="text-gray-600">凭直觉选 5 张牌，AI 为你解读内心</p>
+          <p className="text-gray-600">凭直觉翻开 5 张牌，AI 为你解读内心</p>
         </div>
 
-        {/* 温馨提示 */}
         <div className="bg-purple-50 border border-purple-200 rounded-lg p-3 mb-6 text-xs text-purple-800">
           🌙 塔罗是自我反思的镜子，不是命运的判决。AI 解读仅供参考，最终决定权在你手中。
         </div>
@@ -218,7 +303,6 @@ export default function TarotPage() {
               className="w-full p-3 border border-gray-300 rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-purple-400 mb-4"
             />
 
-            {/* 牌阵说明 */}
             <div className="bg-purple-50 rounded-lg p-4 mb-4">
               <div className="text-sm font-medium text-purple-800 mb-2">🃏 十字牌阵</div>
               <div className="grid grid-cols-3 gap-2 text-xs text-purple-700">
@@ -235,11 +319,11 @@ export default function TarotPage() {
             </div>
 
             <button
-              onClick={startReading}
+              onClick={handleStartClarify}
               disabled={loading}
               className="w-full bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white font-semibold py-3 px-6 rounded-lg transition"
             >
-              {loading ? '⏳ 洗牌中...' : '🔮 开始占卜'}
+              {loading ? '⏳ AI 准备中...' : '🔮 开始占卜'}
             </button>
 
             {error && (
@@ -250,7 +334,21 @@ export default function TarotPage() {
           </div>
         )}
 
-        {/* 阶段 2：选牌 */}
+        {/* 阶段 1.5：AI 追问 */}
+        {phase === 'clarify' && clarifyQ && (
+          <ClarifyView
+            question={question}
+            clarifyQ={clarifyQ}
+            history={clarifyHistory}
+            maxRounds={MAX_CLARIFY_ROUNDS}
+            loading={loading}
+            error={error}
+            onAnswer={handleAnswerClarify}
+            onSkip={handleSkipClarify}
+          />
+        )}
+
+        {/* 阶段 2：选牌（翻牌即选） */}
         {phase === 'select' && (
           <div>
             <div className="bg-white rounded-xl shadow-md p-6 mb-4">
@@ -260,11 +358,17 @@ export default function TarotPage() {
                   <div className="text-gray-800 italic">「{question}」</div>
                 </div>
                 <div className="text-right">
-                  <div className="text-sm text-gray-500">已选</div>
+                  <div className="text-sm text-gray-500">已翻</div>
                   <div className="text-2xl font-bold text-purple-600">
                     {selectedIds.length} / 5
                   </div>
                 </div>
+              </div>
+
+              <div className="text-center text-sm text-purple-600 mb-3">
+                {selectedIds.length < 5
+                  ? `👆 凭直觉点击牌背翻开 ${5 - selectedIds.length} 张`
+                  : '🎉 5 张牌已选好，可点同一张取消重选'}
               </div>
 
               {selectedIds.length === 5 && (
@@ -276,11 +380,6 @@ export default function TarotPage() {
                   {loading ? '⏳ 解牌中...' : '✨ 开始解牌'}
                 </button>
               )}
-              {selectedIds.length < 5 && (
-                <div className="text-center text-sm text-purple-600">
-                  👆 请凭直觉点击 {5 - selectedIds.length} 张牌背
-                </div>
-              )}
 
               {error && (
                 <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
@@ -289,37 +388,24 @@ export default function TarotPage() {
               )}
             </div>
 
-            {/* 78 张牌背网格 */}
             <div className="bg-white rounded-xl shadow-md p-6">
               <div className="grid grid-cols-8 sm:grid-cols-10 md:grid-cols-13 gap-2">
                 {deck.map((cardId, idx) => {
-                  const isSelected = selectedIds.includes(cardId);
-                  const selectOrder = selectedIds.indexOf(cardId) + 1; // 1-5
+                  const isFlipped = flippedIds.includes(cardId);
+                  const selectOrder = selectedIds.indexOf(cardId) + 1;
+                  const canFlip = isFlipped || selectedIds.length < 5;
                   return (
-                    <button
+                    <FlipCard
                       key={idx}
-                      onClick={() => toggleCard(cardId)}
-                      disabled={!isSelected && selectedIds.length >= 5}
-                      className={`aspect-[2/3] rounded-lg border-2 flex flex-col items-center justify-center text-xs transition ${
-                        isSelected
-                          ? 'border-purple-600 bg-purple-100 text-purple-800 shadow-lg scale-105'
-                          : selectedIds.length >= 5
-                          ? 'border-gray-200 bg-gray-50 text-gray-300 cursor-not-allowed'
-                          : 'border-purple-300 bg-gradient-to-br from-purple-100 to-indigo-100 text-purple-700 hover:border-purple-500 hover:shadow'
-                      }`}
-                    >
-                      {isSelected ? (
-                        <>
-                          <div className="text-2xl font-bold">{selectOrder}</div>
-                          <div className="text-[10px] mt-1">已选</div>
-                        </>
-                      ) : (
-                        <>
-                          <div className="text-lg">🃏</div>
-                          <div className="text-[10px]">{idx + 1}</div>
-                        </>
-                      )}
-                    </button>
+                      cardId={cardId}
+                      deckIndex={idx}
+                      isFlipped={isFlipped}
+                      isSelected={selectOrder > 0}
+                      selectOrder={selectOrder}
+                      reversed={Boolean(reversedMap[cardId])}
+                      disabled={!canFlip}
+                      onToggle={() => toggleCard(cardId)}
+                    />
                   );
                 })}
               </div>
@@ -334,32 +420,39 @@ export default function TarotPage() {
               <div className="text-sm text-gray-500 mb-1">你的问题：</div>
               <div className="text-gray-800 italic mb-4">「{question}」</div>
 
-              {/* 5 张牌展示 */}
+              {/* 5 张牌展示 — 用 selectedIds 做图片源（同翻牌） */}
               <div className="grid grid-cols-5 gap-2 mb-6">
-                {result.spread.map((card, i) => (
-                  <div key={i} className="text-center">
-                    <div className={`aspect-[2/3] rounded-lg border-2 border-purple-400 bg-white overflow-hidden mb-1 ${card.reversed ? 'rotate-180' : ''}`}>
-                      {CARD_IMAGES[card.id] ? (
-                        <img
-                          src={`/tarot/${CARD_IMAGES[card.id]}.png`}
-                          alt={card.cardName}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center text-3xl">🃏</div>
-                      )}
-                      <div className="absolute bottom-1 right-1 text-[10px] bg-purple-100 px-1 rounded text-purple-700">
-                        {card.reversed ? '逆位' : '正位'}
+                {selectedIds.map((cardId, i) => {
+                  const reversed = Boolean(reversedMap[cardId]);
+                  const cardName = result.spread[i]?.cardName || '';
+                  const imgSrc = CARD_IMAGES[cardId]
+                    ? `/tarot/${CARD_IMAGES[cardId]}.png`
+                    : null;
+                  return (
+                    <div key={i} className="text-center">
+                      <div className="relative aspect-[2/3] rounded-lg border-2 border-purple-400 bg-white overflow-hidden mb-1">
+                        {imgSrc ? (
+                          <img
+                            src={imgSrc}
+                            alt={cardName}
+                            className={`w-full h-full object-cover ${reversed ? 'rotate-180' : ''}`}
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-3xl">🃏</div>
+                        )}
+                        <div className="absolute bottom-1 right-1 text-[10px] bg-purple-100 px-1 rounded text-purple-700">
+                          {reversed ? '逆位' : '正位'}
+                        </div>
+                      </div>
+                      <div className="text-xs font-medium text-purple-800">
+                        {cardName}
+                      </div>
+                      <div className="text-[10px] text-gray-500 mt-0.5">
+                        {POSITION_LABELS[i]}
                       </div>
                     </div>
-                    <div className="text-xs font-medium text-purple-800">
-                      {card.cardName}
-                    </div>
-                    <div className="text-[10px] text-gray-500 mt-0.5">
-                      {POSITION_LABELS[i]}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 
@@ -385,7 +478,6 @@ export default function TarotPage() {
               ))}
             </div>
 
-            {/* 整体总结 */}
             <div className="bg-gradient-to-br from-purple-100 to-indigo-100 rounded-xl shadow-md p-6 mb-4">
               <h3 className="text-xl font-bold text-purple-800 mb-3">
                 ✨ 整体解读
@@ -405,5 +497,234 @@ export default function TarotPage() {
         )}
       </div>
     </main>
+  );
+}
+
+// ============================================================================
+//                              追问阶段组件
+// ============================================================================
+function ClarifyView({
+  question,
+  clarifyQ,
+  history,
+  maxRounds,
+  loading,
+  error,
+  onAnswer,
+  onSkip,
+}: {
+  question: string;
+  clarifyQ: { question: string; type: ClarifyType; options: string[]; round: number };
+  history: ClarifyTurn[];
+  maxRounds: number;
+  loading: boolean;
+  error: string;
+  onAnswer: (a: string | string[]) => void;
+  onSkip: () => void;
+}) {
+  // 当前题的临时选择（单选 string、多选 string[]）
+  const [picked, setPicked] = useState<string>('');
+  const [pickedMulti, setPickedMulti] = useState<string[]>([]);
+
+  const submit = () => {
+    if (clarifyQ.type === 'multi') {
+      if (pickedMulti.length === 0) return;
+      onAnswer(pickedMulti);
+    } else {
+      if (!picked) return;
+      onAnswer(picked);
+    }
+    // 重置
+    setPicked('');
+    setPickedMulti([]);
+  };
+
+  const toggleMulti = (opt: string) => {
+    setPickedMulti((prev) =>
+      prev.includes(opt) ? prev.filter((o) => o !== opt) : [...prev, opt]
+    );
+  };
+
+  const canSubmit =
+    (clarifyQ.type === 'multi' && pickedMulti.length > 0) ||
+    (clarifyQ.type !== 'multi' && picked.length > 0);
+
+  const typeLabel = clarifyQ.type === 'single' ? '单选' : clarifyQ.type === 'multi' ? '多选' : '判断';
+
+  return (
+    <div className="bg-white rounded-xl shadow-md p-6">
+      {/* 顶部信息 */}
+      <div className="mb-4 pb-4 border-b border-gray-100">
+        <div className="text-xs text-gray-500 mb-1">你的问题：</div>
+        <div className="text-gray-800 italic mb-2">「{question}」</div>
+        <div className="flex items-center justify-between text-xs text-purple-600">
+          <span>🤔 AI 还在了解情况</span>
+          <span>第 {clarifyQ.round} / {maxRounds} 轮</span>
+        </div>
+      </div>
+
+      {/* 之前对话历史 */}
+      {history.length > 0 && (
+        <div className="mb-4 p-3 bg-purple-50 rounded-lg text-xs space-y-1.5">
+          {history.map((h, i) => (
+            <div key={i} className="text-purple-800">
+              <div className="font-medium">问 {i + 1}：{h.question}</div>
+              <div className="text-purple-600">
+                → 答：{Array.isArray(h.answer) ? h.answer.join('、') : h.answer}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 当前题 */}
+      {loading ? (
+        <div className="py-12 text-center text-purple-600">
+          <div className="text-3xl mb-2">🔮</div>
+          <div>AI 思考中...</div>
+        </div>
+      ) : (
+        <>
+          <div className="mb-4">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-xs px-2 py-0.5 bg-purple-100 text-purple-700 rounded">
+                {typeLabel}
+              </span>
+              <h3 className="font-semibold text-gray-800 flex-1">{clarifyQ.question}</h3>
+            </div>
+
+            <div className="space-y-2">
+              {clarifyQ.options.map((opt, i) => {
+                const isPicked =
+                  clarifyQ.type === 'multi'
+                    ? pickedMulti.includes(opt)
+                    : picked === opt;
+                return (
+                  <button
+                    key={i}
+                    onClick={() => {
+                      if (clarifyQ.type === 'multi') toggleMulti(opt);
+                      else setPicked(opt);
+                    }}
+                    className={`w-full text-left px-4 py-3 rounded-lg border-2 transition ${
+                      isPicked
+                        ? 'border-purple-600 bg-purple-50 text-purple-900'
+                        : 'border-gray-200 hover:border-purple-300 hover:bg-gray-50'
+                    }`}
+                  >
+                    <span className="text-sm">
+                      {isPicked ? '●' : '○'} {opt}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {error && (
+            <div className="mb-3 p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+              ❌ {error}
+            </div>
+          )}
+
+          <div className="flex gap-3">
+            <button
+              onClick={submit}
+              disabled={!canSubmit}
+              className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white font-semibold py-3 px-6 rounded-lg transition"
+            >
+              回答 → 下一题
+            </button>
+            <button
+              onClick={onSkip}
+              className="px-4 py-3 border border-gray-300 hover:bg-gray-50 rounded-lg text-sm text-gray-700"
+            >
+              ✋ 已了解基本情况，开始洗牌占卜
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ============================================================================
+//                              翻牌卡组件（复用上一版）
+// ============================================================================
+function FlipCard({
+  cardId,
+  deckIndex,
+  isFlipped,
+  isSelected,
+  selectOrder,
+  reversed,
+  disabled,
+  onToggle,
+}: {
+  cardId: number;
+  deckIndex: number;
+  isFlipped: boolean;
+  isSelected: boolean;
+  selectOrder: number;
+  reversed: boolean;
+  disabled: boolean;
+  onToggle: () => void;
+}) {
+  const imgSrc = CARD_IMAGES[cardId]
+    ? `/tarot/${CARD_IMAGES[cardId]}.png`
+    : null;
+
+  return (
+    <div
+      className={`flip-card aspect-[2/3] ${isFlipped ? 'is-flipped' : ''}`}
+      style={{
+        opacity: disabled ? 0.4 : 1,
+        pointerEvents: disabled ? 'none' : 'auto',
+      }}
+    >
+      <button
+        onClick={onToggle}
+        disabled={disabled}
+        className={`flip-card-inner relative w-full h-full rounded-lg ${isSelected ? 'shadow-xl' : ''}`}
+        style={{ transformStyle: 'preserve-3d' }}
+      >
+        <div
+          className="flip-card-face absolute inset-0 rounded-lg border-2 border-purple-300 bg-gradient-to-br from-purple-200 via-purple-300 to-indigo-400 flex flex-col items-center justify-center text-purple-800"
+          style={{ backfaceVisibility: 'hidden' }}
+        >
+          <div className="text-3xl">🃏</div>
+          <div className="text-[10px] mt-1 font-medium">{deckIndex + 1}</div>
+          <div className="absolute inset-1 rounded border border-purple-400/40 pointer-events-none" />
+        </div>
+        <div
+          className={`flip-card-face absolute inset-0 rounded-lg border-2 overflow-hidden ${
+            isSelected ? 'border-purple-600 ring-2 ring-purple-400' : 'border-purple-400'
+          }`}
+          style={{
+            backfaceVisibility: 'hidden',
+            transform: `rotateY(180deg) ${reversed ? 'rotate(180deg)' : ''}`,
+          }}
+        >
+          {imgSrc ? (
+            <img src={imgSrc} alt={`card-${cardId}`} className="w-full h-full object-cover" />
+          ) : (
+            <div className="w-full h-full flex items-center justify-center bg-purple-100 text-3xl">🃏</div>
+          )}
+          {isSelected && (
+            <div className="absolute top-1 right-1 w-6 h-6 bg-purple-600 text-white text-xs rounded-full flex items-center justify-center font-bold shadow">
+              {selectOrder}
+            </div>
+          )}
+        </div>
+      </button>
+      <style jsx>{`
+        .flip-card { perspective: 600px; }
+        .flip-card-inner {
+          transition: transform 0.6s cubic-bezier(0.4, 0.0, 0.2, 1);
+          transform-style: preserve-3d;
+        }
+        .flip-card.is-flipped .flip-card-inner { transform: rotateY(180deg); }
+      `}</style>
+    </div>
   );
 }

@@ -447,7 +447,7 @@ function InterviewPageInner() {
             ❌ {error}
             {error.includes('白名单') && (
               <div className="mt-2 text-sm">
-                💡 这是一个测试功能，目前仅白名单用户可用
+                💡 这是一个测试功能，目前仅会员可用
               </div>
             )}
           </div>
