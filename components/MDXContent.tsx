@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 
 // ---------- 折叠项 ----------
 export function AccordionItem({
@@ -93,7 +94,7 @@ export function MDXPage({
   return (
     <div className="mx-auto max-w-3xl px-6 py-16">
       <nav className="text-sm text-gray-500 mb-8">
-        <a href="/" className="hover:text-gray-900">首页</a>
+        <Link href="/" className="hover:text-gray-900">首页</Link>
         <span className="mx-2">/</span>
         <span className="text-gray-700">{title}</span>
       </nav>
