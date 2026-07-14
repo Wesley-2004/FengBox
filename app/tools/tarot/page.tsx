@@ -268,15 +268,6 @@ export default function TarotPage() {
   return (
     <main className="min-h-screen bg-gradient-to-b from-purple-50 to-indigo-100 py-8 px-4">
       <div className="max-w-5xl mx-auto">
-        <div className="mb-6">
-          <Link
-            href="/"
-            className="text-sm text-gray-600 hover:text-gray-900 flex items-center gap-1"
-          >
-            ← 返回 FengBox 首页
-          </Link>
-        </div>
-
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-2 mb-3">
             <span className="text-3xl">🔮</span>

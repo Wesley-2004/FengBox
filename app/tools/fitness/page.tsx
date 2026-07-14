@@ -309,12 +309,6 @@ export default function FitnessPage() {
     <main className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 py-8 px-4">
       <div className="max-w-4xl mx-auto">
         {/* 返回 */}
-        <div className="mb-6">
-          <Link href="/" className="text-sm text-gray-600 hover:text-gray-900 flex items-center gap-1">
-            ← 返回 FengBox 首页
-          </Link>
-        </div>
-
         {/* 标题 */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center gap-2 mb-3">
