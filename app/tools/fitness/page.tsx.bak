@@ -1,0 +1,706 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import * as XLSX from 'xlsx';
+
+const BROAD_GOALS = [
+  { value: '减脂减肥', label: '减脂减肥' },
+  { value: '增肌塑形', label: '增肌塑形' },
+  { value: '提高体能', label: '提高体能' },
+  { value: '保持健康', label: '保持健康' },
+];
+
+const EXPERIENCES = [
+  { value: '零基础', label: '零基础（从未规律运动）' },
+  { value: '偶尔运动', label: '偶尔运动（每月几次）' },
+  { value: '经常运动', label: '经常运动（每周 ≥ 2 次）' },
+];
+
+const GENDERS = [
+  { value: '男', label: '男' },
+  { value: '女', label: '女' },
+  { value: '其他', label: '其他' },
+];
+
+const SESSION_MINUTES = [30, 45, 60, 90];
+
+// ---------- 类型 ----------
+type BMICategory = { label: string; color: string; advice: string };
+
+type Exercise = {
+  name: string;
+  sets: string;
+  durationMin: number;
+  caloriesKcal: number;
+  muscles: string;
+  difficulty: 1 | 2 | 3;
+  tips: string;
+};
+
+type WorkoutGroup = {
+  category: string;
+  emoji: string;
+  note: string;
+  exercises: Exercise[];
+};
+
+type Workout = {
+  summary: string;
+  groups: WorkoutGroup[];
+  totalDurationMin: number;
+  totalCaloriesKcal: number;
+};
+
+type Meal = {
+  time: string;
+  items: string[];
+  caloriesKcal: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+};
+
+type Nutrition = {
+  summary: string;
+  totalCaloriesKcal: number;
+  macros: { proteinG: number; carbsG: number; fatG: number };
+  meals: Meal[];
+  tips: string[];
+};
+
+type Structured = {
+  disclaimer: string;
+  warnings?: string[];
+  bmiSummary?: string;
+  workout?: Workout;
+  nutrition?: Nutrition;
+};
+
+type ApiResult = {
+  success: boolean;
+  bmi: number;
+  bmiCategory: BMICategory;
+  structured: Structured | null;
+  plan: string;
+  warnings?: string[];
+};
+
+// ---------- 主组件 ----------
+export default function FitnessPage() {
+  // 输入
+  const [height, setHeight] = useState('');
+  const [weight, setWeight] = useState('');
+  const [age, setAge] = useState('');
+  const [gender, setGender] = useState('');
+  const [broadGoal, setBroadGoal] = useState('');
+  const [specificGoal, setSpecificGoal] = useState('');
+  const [experience, setExperience] = useState('零基础');
+  const [equipment, setEquipment] = useState('');
+  const [sessionMinutes, setSessionMinutes] = useState(45);
+  const [wantWorkout, setWantWorkout] = useState(true);
+  const [wantNutrition, setWantNutrition] = useState(false);
+
+  // 状态
+  const [loading, setLoading] = useState(false);
+  const [loadingSeconds, setLoadingSeconds] = useState(0);
+  const [error, setError] = useState('');
+  const [result, setResult] = useState<ApiResult | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  // 实时 BMI（仅显示，不提交）
+  const liveBMI = useMemo(() => {
+    const h = parseFloat(height);
+    const w = parseFloat(weight);
+    if (h > 0 && w > 0) return w / Math.pow(h / 100, 2);
+    return null;
+  }, [height, weight]);
+  const liveBMICat = liveBMI ? getBMILabel(liveBMI) : null;
+
+  // 加载计时
+  useTimer(loading, setLoadingSeconds);
+
+  // ---------- 提交 ----------
+  const handleSubmit = async () => {
+    setError('');
+    if (!height || !weight) return setError('请填写身高和体重');
+    if (age && (parseInt(age) < 10 || parseInt(age) > 100)) return setError('请填写合理年龄（10-100）');
+    if (!broadGoal) return setError('请选择健身目的');
+    if (!wantWorkout && !wantNutrition) return setError('请至少选择一种输出类型');
+
+    const outputTypes: string[] = [];
+    if (wantWorkout) outputTypes.push('workout');
+    if (wantNutrition) outputTypes.push('nutrition');
+
+    setLoading(true);
+    setResult(null);
+
+    try {
+      const response = await fetch('/api/fitness', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          height: parseFloat(height),
+          weight: parseFloat(weight),
+          age: age ? parseInt(age) : undefined,
+          gender: gender || undefined,
+          broadGoal,
+          specificGoal: specificGoal || undefined,
+          experience,
+          equipment: (equipment || '无').trim() || '无',
+          sessionMinutes,
+          outputTypes,
+        }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        setResult({
+          success: true,
+          bmi: data.bmi,
+          bmiCategory: data.bmiCategory,
+          structured: data.structured || null,
+          plan: data.plan || '',
+          warnings: data.warnings || data.structured?.warnings || [],
+        });
+      } else {
+        setError(data.error || '出错了，请重试');
+      }
+    } catch {
+      setError('网络错误，请重试');
+    } finally {
+      setLoading(false);
+      setLoadingSeconds(0);
+    }
+  };
+
+  const fillExample = () => {
+    setHeight('175');
+    setWeight('70');
+    setAge('28');
+    setGender('男');
+    setBroadGoal('减脂减肥');
+    setSpecificGoal('想瘦肚子，最好有点腹肌线条');
+    setExperience('偶尔运动');
+    setEquipment('一对 5kg 哑铃 + 瑜伽垫');
+    setSessionMinutes(45);
+    setWantWorkout(true);
+    setWantNutrition(true);
+  };
+
+  const handleCopy = async () => {
+    if (!result) return;
+    const text = buildCopyText(result);
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
+  };
+
+  // ---------- 渲染 ----------
+  return (
+    <main className="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100 py-8 px-4">
+      <div className="max-w-4xl mx-auto">
+        {/* 返回 */}
+        <div className="mb-6">
+          <Link href="/" className="text-sm text-gray-600 hover:text-gray-900 flex items-center gap-1">
+            ← 返回 FengBox 首页
+          </Link>
+        </div>
+
+        {/* 标题 */}
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center gap-2 mb-3">
+            <span className="text-3xl">💪</span>
+            <h1 className="text-3xl font-bold text-gray-800">AI 健身教练</h1>
+          </div>
+          <p className="text-gray-600">输入身体数据和目标，AI 为你定制健身与营养方案</p>
+        </div>
+
+        {/* 免责声明 */}
+        <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-6 text-xs text-yellow-800">
+          ⚠️ 本工具仅供参考，不能替代专业医生或健身教练。如有健康问题请咨询专业人士。
+        </div>
+
+        {/* 输入区 */}
+        {!result && (
+          <div className="bg-white rounded-xl shadow-md p-6 mb-6">
+            {/* 身高体重 */}
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <Field label="身高 (cm)">
+                <input type="number" value={height} onChange={(e) => setHeight(e.target.value)}
+                  placeholder="例如 175"
+                  className={inputCls} />
+              </Field>
+              <Field label="体重 (kg)">
+                <input type="number" value={weight} onChange={(e) => setWeight(e.target.value)}
+                  placeholder="例如 70"
+                  className={inputCls} />
+              </Field>
+            </div>
+
+            {/* 实时 BMI */}
+            {liveBMI && liveBMICat && (
+              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm">
+                📊 实时 BMI：<strong>{liveBMI.toFixed(1)}</strong>
+                <span className={`ml-2 px-2 py-0.5 rounded text-xs ${badgeCls(liveBMICat.color)}`}>
+                  {liveBMICat.label}
+                </span>
+                <span className="ml-2 text-gray-600">{liveBMICat.advice}</span>
+              </div>
+            )}
+
+            {/* 年龄 / 性别 */}
+            <div className="grid grid-cols-2 gap-4 mb-4">
+              <Field label="年龄（可选）">
+                <input type="number" value={age} onChange={(e) => setAge(e.target.value)}
+                  placeholder="例如 28"
+                  className={inputCls} />
+              </Field>
+              <Field label="性别（可选）">
+                <select value={gender} onChange={(e) => setGender(e.target.value)} className={inputCls}>
+                  <option value="">不填</option>
+                  {GENDERS.map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}
+                </select>
+              </Field>
+            </div>
+
+            {/* 健身目的 */}
+            <Field label="健身目的">
+              <select value={broadGoal} onChange={(e) => setBroadGoal(e.target.value)} className={inputCls}>
+                <option value="">请选择...</option>
+                {BROAD_GOALS.map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}
+              </select>
+            </Field>
+
+            <Field label="具体目标（可选）">
+              <input type="text" value={specificGoal} onChange={(e) => setSpecificGoal(e.target.value)}
+                placeholder="例如：练腹肌、瘦小腿"
+                className={inputCls} />
+            </Field>
+
+            {/* 运动经验 */}
+            <Field label="运动经验">
+              <select value={experience} onChange={(e) => setExperience(e.target.value)} className={inputCls}>
+                {EXPERIENCES.map((x) => <option key={x.value} value={x.value}>{x.label}</option>)}
+              </select>
+            </Field>
+
+            {/* 器械 / 场地 */}
+            <Field label="器械 / 场地（自由填写）">
+              <input type="text" value={equipment} onChange={(e) => setEquipment(e.target.value)}
+                placeholder="例：无 / 哑铃 + 瑜伽垫 / 健身房 / 户外跑步"
+                className={inputCls} />
+            </Field>
+
+            {/* 单次时长 */}
+            <Field label="单次可投入时长（分钟）">
+              <div className="flex gap-2">
+                {SESSION_MINUTES.map((m) => (
+                  <button key={m} type="button" onClick={() => setSessionMinutes(m)}
+                    className={`flex-1 py-2 px-3 rounded-lg border text-sm font-medium transition ${
+                      sessionMinutes === m
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                    }`}>
+                    {m} 分钟
+                  </button>
+                ))}
+              </div>
+            </Field>
+
+            {/* 输出类型 */}
+            <Field label="输出类型（可多选）">
+              <div className="flex gap-4">
+                <Check label="🏃 健身方案" checked={wantWorkout} onChange={setWantWorkout} />
+                <Check label="🥗 一日三餐搭配" checked={wantNutrition} onChange={setWantNutrition} />
+              </div>
+            </Field>
+
+            {/* 操作按钮 */}
+            <div className="flex gap-3">
+              <button onClick={handleSubmit} disabled={loading}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-semibold py-3 px-6 rounded-lg transition flex items-center justify-center gap-2">
+                {loading ? (
+                  <>
+                    <Spinner />
+                    <span>AI 生成中{loadingSeconds > 15 ? '（可能还要一会）' : '...'}</span>
+                  </>
+                ) : '🚀 生成方案'}
+              </button>
+              <button onClick={fillExample}
+                className="px-4 py-3 border border-gray-300 hover:bg-gray-50 rounded-lg text-sm text-gray-700">
+                📝 填入示例
+              </button>
+            </div>
+
+            {error && (
+              <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
+                ❌ {error}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* 结果区 */}
+        {result && (
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <button onClick={() => setResult(null)} className="text-blue-600 hover:text-blue-700 font-medium">
+                ← 重新输入
+              </button>
+              <div className="flex gap-2">
+                <button onClick={handleCopy}
+                  className="px-4 py-2 border border-gray-300 hover:bg-gray-50 rounded-lg text-sm text-gray-700">
+                  {copied ? '✅ 已复制' : '📋 复制全部'}
+                </button>
+              </div>
+            </div>
+
+            {/* BMI 卡片 */}
+            <BMICard bmi={result.bmi} category={result.bmiCategory}
+              bmiSummary={result.structured?.bmiSummary} />
+
+            {/* 警示 */}
+            {result.warnings && result.warnings.length > 0 && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
+                <div className="font-semibold text-amber-800 mb-1">⚠️ 特别提醒</div>
+                <ul className="text-sm text-amber-800 list-disc list-inside space-y-1">
+                  {result.warnings.map((w, i) => <li key={i}>{w}</li>)}
+                </ul>
+              </div>
+            )}
+
+            {/* 健身方案 */}
+            {result.structured?.workout && (
+              <WorkoutView workout={result.structured.workout} />
+            )}
+
+            {/* 营养方案 */}
+            {result.structured?.nutrition && (
+              <NutritionView nutrition={result.structured.nutrition} />
+            )}
+
+            {/* 兜底 markdown */}
+            {!result.structured && result.plan && (
+              <div className="bg-white rounded-xl shadow-md p-6 mb-6">
+                <h2 className="text-2xl font-bold text-gray-800 mb-4">📝 教练方案</h2>
+                <div className="prose prose-sm max-w-none whitespace-pre-wrap text-gray-800 leading-relaxed">
+                  {result.plan}
+                </div>
+              </div>
+            )}
+
+            {/* 底部免责声明 */}
+            {result.structured?.disclaimer && (
+              <div className="mt-6 text-xs text-gray-500 text-center">
+                {result.structured.disclaimer}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </main>
+  );
+}
+
+// ---------- 子组件：BMI ----------
+function BMICard({ bmi, category, bmiSummary }: { bmi: number; category: BMICategory; bmiSummary?: string }) {
+  return (
+    <div className="bg-white rounded-xl shadow-md p-6 mb-6">
+      <h2 className="text-2xl font-bold text-gray-800 mb-3">📊 你的身体状态</h2>
+      <div className="flex items-center gap-4 mb-2">
+        <div className="text-4xl font-bold text-blue-600">{bmi.toFixed(1)}</div>
+        <div>
+          <div className="text-sm text-gray-500">BMI 指数</div>
+          <span className={`inline-block mt-1 px-2 py-0.5 rounded text-sm ${badgeCls(category.color)}`}>
+            {category.label}
+          </span>
+        </div>
+      </div>
+      <p className="text-gray-600 text-sm mt-2">{bmiSummary || category.advice}</p>
+    </div>
+  );
+}
+
+// ---------- 子组件：健身方案 ----------
+function WorkoutView({ workout }: { workout: Workout }) {
+  if (!workout.groups || workout.groups.length === 0) return null;
+  const totalMin = workout.totalDurationMin ?? sumExercisesDuration(workout);
+  const totalKcal = workout.totalCaloriesKcal ?? sumExercisesKcal(workout);
+
+  return (
+    <div className="bg-white rounded-xl shadow-md p-6 mb-6">
+      <div className="flex items-start justify-between mb-2">
+        <h2 className="text-2xl font-bold text-gray-800">🏋️ 健身方案</h2>
+        <div className="flex gap-2 text-xs">
+          <Pill color="blue">⏱ 约 {totalMin} 分钟</Pill>
+          <Pill color="orange">🔥 估算 {totalKcal} kcal</Pill>
+        </div>
+      </div>
+      {workout.summary && (
+        <p className="text-gray-700 text-sm mb-5 leading-relaxed">{workout.summary}</p>
+      )}
+
+      <div className="space-y-6">
+        {workout.groups.map((g, gi) => (
+          <section key={gi}>
+            <div className="flex items-center gap-2 mb-3">
+              <span className="text-xl">{g.emoji || '•'}</span>
+              <h3 className="text-lg font-semibold text-gray-800">{g.category}</h3>
+            </div>
+            {g.note && <p className="text-sm text-gray-500 mb-3">{g.note}</p>}
+            <div className="grid sm:grid-cols-2 gap-3">
+              {g.exercises.map((ex, i) => <ExerciseCard key={i} ex={ex} />)}
+            </div>
+          </section>
+        ))}
+      </div>
+
+      <p className="mt-5 text-xs text-gray-400">
+        * 时长与热量为估算值，仅供参考。实际消耗因体重、强度、个人代谢而异。
+      </p>
+    </div>
+  );
+}
+
+function ExerciseCard({ ex }: { ex: Exercise }) {
+  const stars = '⭐'.repeat(Math.min(3, Math.max(1, ex.difficulty || 1)));
+  return (
+    <div className="border border-gray-200 rounded-lg p-4 hover:shadow-sm transition bg-gray-50/50">
+      <div className="flex items-start justify-between gap-2 mb-1.5">
+        <div className="font-semibold text-gray-800">{ex.name}</div>
+        <div className="text-xs whitespace-nowrap">{stars}</div>
+      </div>
+      <div className="text-sm text-blue-700 font-medium mb-2">{ex.sets}</div>
+      <div className="grid grid-cols-3 gap-2 text-xs mb-2">
+        <Stat label="时长" value={`${ex.durationMin} min`} />
+        <Stat label="消耗" value={`~${ex.caloriesKcal} kcal`} accent="orange" />
+        <Stat label="部位" value={ex.muscles || '—'} />
+      </div>
+      {ex.tips && (
+        <div className="text-xs text-gray-600 leading-relaxed border-t border-gray-200 pt-2 mt-2">
+          <span className="text-gray-400">要点：</span>{ex.tips}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Stat({ label, value, accent }: { label: string; value: string; accent?: 'orange' | 'blue' }) {
+  const c = accent === 'orange' ? 'text-orange-600' : accent === 'blue' ? 'text-blue-600' : 'text-gray-700';
+  return (
+    <div>
+      <div className="text-gray-400">{label}</div>
+      <div className={`font-semibold ${c}`}>{value}</div>
+    </div>
+  );
+}
+
+function Pill({ children, color }: { children: React.ReactNode; color: 'blue' | 'orange' | 'green' }) {
+  const map = {
+    blue: 'bg-blue-50 text-blue-700 border-blue-200',
+    orange: 'bg-orange-50 text-orange-700 border-orange-200',
+    green: 'bg-green-50 text-green-700 border-green-200',
+  };
+  return <span className={`px-2 py-1 rounded border ${map[color]}`}>{children}</span>;
+}
+
+// ---------- 子组件：营养方案 ----------
+function NutritionView({ nutrition }: { nutrition: Nutrition }) {
+  const totalKcal = nutrition.totalCaloriesKcal ?? sumMealsKcal(nutrition);
+  const p = nutrition.macros?.proteinG ?? sumMealsMacro(nutrition, 'proteinG');
+  const c = nutrition.macros?.carbsG ?? sumMealsMacro(nutrition, 'carbsG');
+  const f = nutrition.macros?.fatG ?? sumMealsMacro(nutrition, 'fatG');
+  const macroTotal = p + c + f || 1;
+  const pPct = Math.round((p * 4 / (totalKcal || 1)) * 100);
+  const cPct = Math.round((c * 4 / (totalKcal || 1)) * 100);
+  const fPct = Math.max(0, 100 - pPct - cPct);
+
+  return (
+    <div className="bg-white rounded-xl shadow-md p-6 mb-6">
+      <div className="flex items-start justify-between mb-2">
+        <h2 className="text-2xl font-bold text-gray-800">🥗 一日三餐搭配</h2>
+        <Pill color="orange">🔥 约 {totalKcal} kcal/日</Pill>
+      </div>
+      {nutrition.summary && (
+        <p className="text-gray-700 text-sm mb-5 leading-relaxed">{nutrition.summary}</p>
+      )}
+
+      {/* 宏量营养素条 */}
+      <div className="mb-5 bg-gray-50 rounded-lg p-4">
+        <div className="text-xs text-gray-500 mb-2">三大营养素（估算）</div>
+        <div className="flex h-3 rounded-full overflow-hidden bg-gray-200 mb-2">
+          <div className="bg-blue-500" style={{ width: `${pPct}%` }} title={`蛋白质 ${pPct}%`} />
+          <div className="bg-yellow-500" style={{ width: `${cPct}%` }} title={`碳水 ${cPct}%`} />
+          <div className="bg-red-400" style={{ width: `${fPct}%` }} title={`脂肪 ${fPct}%`} />
+        </div>
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+          <span><span className="inline-block w-2 h-2 rounded-full bg-blue-500 mr-1.5 align-middle" />蛋白质 {p}g</span>
+          <span><span className="inline-block w-2 h-2 rounded-full bg-yellow-500 mr-1.5 align-middle" />碳水 {c}g</span>
+          <span><span className="inline-block w-2 h-2 rounded-full bg-red-400 mr-1.5 align-middle" />脂肪 {f}g</span>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        {nutrition.meals.map((m, i) => <MealCard key={i} meal={m} />)}
+      </div>
+
+      {nutrition.tips && nutrition.tips.length > 0 && (
+        <div className="mt-5 bg-green-50 border border-green-200 rounded-lg p-3">
+          <div className="text-xs font-semibold text-green-800 mb-1">💡 小贴士</div>
+          <ul className="text-xs text-green-800 list-disc list-inside space-y-0.5">
+            {nutrition.tips.map((t, i) => <li key={i}>{t}</li>)}
+          </ul>
+        </div>
+      )}
+
+      <p className="mt-4 text-xs text-gray-400">
+        * 卡路里与营养素为估算值，仅供参考。
+      </p>
+    </div>
+  );
+}
+
+function MealCard({ meal }: { meal: Meal }) {
+  return (
+    <div className="border border-gray-200 rounded-lg p-4 hover:shadow-sm transition bg-gray-50/50">
+      <div className="flex items-start justify-between mb-2">
+        <div className="font-semibold text-gray-800">{mealEmoji(meal.time)} {meal.time}</div>
+        <div className="text-sm font-semibold text-orange-600">{meal.caloriesKcal} kcal</div>
+      </div>
+      <div className="text-sm text-gray-700 mb-2 leading-relaxed">
+        {meal.items.map((it, i) => <span key={i} className="mr-1">{it}{i < meal.items.length - 1 ? '、' : ''}</span>)}
+      </div>
+      <div className="flex gap-3 text-xs">
+        <MacroTag label="蛋白" value={`${meal.proteinG}g`} color="blue" />
+        <MacroTag label="碳水" value={`${meal.carbsG}g`} color="yellow" />
+        <MacroTag label="脂肪" value={`${meal.fatG}g`} color="red" />
+      </div>
+    </div>
+  );
+}
+
+function MacroTag({ label, value, color }: { label: string; value: string; color: 'blue' | 'yellow' | 'red' }) {
+  const map = {
+    blue: 'bg-blue-50 text-blue-700',
+    yellow: 'bg-yellow-50 text-yellow-700',
+    red: 'bg-red-50 text-red-600',
+  };
+  return <span className={`px-2 py-0.5 rounded ${map[color]}`}>{label} {value}</span>;
+}
+
+function mealEmoji(time: string): string {
+  const t = time || '';
+  if (t.includes('早')) return '🌅';
+  if (t.includes('午')) return '☀️';
+  if (t.includes('晚')) return '🌙';
+  if (t.includes('加')) return '🍎';
+  return '🍽️';
+}
+
+// ---------- 子组件：表单 ----------
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="mb-4">
+      <label className="block text-sm font-medium text-gray-700 mb-2">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function Check({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label className="flex items-center gap-2 cursor-pointer">
+      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="w-4 h-4 text-blue-600" />
+      <span>{label}</span>
+    </label>
+  );
+}
+
+function Spinner() {
+  return (
+    <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24" fill="none">
+      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+    </svg>
+  );
+}
+
+// ---------- hooks ----------
+function useTimer(running: boolean, set: (n: number) => void) {
+  useEffect(() => {
+    if (!running) return;
+    const start = Date.now();
+    const id = setInterval(() => set(Math.floor((Date.now() - start) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [running, set]);
+}
+
+// ---------- helpers ----------
+function getBMILabel(bmi: number): BMICategory {
+  if (bmi < 18.5) return { label: '偏瘦', color: 'blue', advice: '建议增加营养摄入并配合力量训练' };
+  if (bmi < 24) return { label: '正常', color: 'green', advice: '请继续保持规律运动和均衡饮食' };
+  if (bmi < 28) return { label: '超重', color: 'yellow', advice: '建议增加有氧运动并控制饮食' };
+  return { label: '肥胖', color: 'red', advice: '建议循序渐进，必要时咨询专业医生' };
+}
+
+function badgeCls(color: string): string {
+  switch (color) {
+    case 'green': return 'bg-green-100 text-green-800';
+    case 'yellow': return 'bg-yellow-100 text-yellow-800';
+    case 'red': return 'bg-red-100 text-red-800';
+    case 'blue':
+    default: return 'bg-blue-100 text-blue-800';
+  }
+}
+
+const inputCls = 'w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500';
+
+function sumExercisesDuration(w: Workout): number {
+  return w.groups.reduce((s, g) => s + g.exercises.reduce((x, e) => x + (e.durationMin || 0), 0), 0);
+}
+function sumExercisesKcal(w: Workout): number {
+  return w.groups.reduce((s, g) => s + g.exercises.reduce((x, e) => x + (e.caloriesKcal || 0), 0), 0);
+}
+function sumMealsKcal(n: Nutrition): number {
+  return n.meals.reduce((s, m) => s + (m.caloriesKcal || 0), 0);
+}
+function sumMealsMacro(n: Nutrition, k: 'proteinG' | 'carbsG' | 'fatG'): number {
+  return n.meals.reduce((s, m) => s + (m[k] || 0), 0);
+}
+
+function buildCopyText(r: ApiResult): string {
+  const lines: string[] = [];
+  lines.push(`【AI 健身教练方案】`);
+  lines.push(`BMI: ${r.bmi.toFixed(1)} (${r.bmiCategory.label})`);
+  if (r.structured) {
+    if (r.structured.warnings?.length) lines.push(`提醒: ${r.structured.warnings.join('；')}`);
+    if (r.structured.workout) {
+      const w = r.structured.workout;
+      lines.push('', '【健身方案】', w.summary);
+      w.groups.forEach((g) => {
+        lines.push('', `${g.emoji} ${g.category}`);
+        g.exercises.forEach((e) => {
+          lines.push(`- ${e.name} | ${e.sets} | ${e.durationMin}min | ~${e.caloriesKcal}kcal | 部位:${e.muscles} | 难度${'⭐'.repeat(e.difficulty)}`);
+          if (e.tips) lines.push(`  要点: ${e.tips}`);
+        });
+      });
+    }
+    if (r.structured.nutrition) {
+      const n = r.structured.nutrition;
+      lines.push('', '【一日三餐】', n.summary, `总热量: ~${r.structured && (n.totalCaloriesKcal)} kcal`);
+      n.meals.forEach((m) => {
+        lines.push(`- ${m.time} ~${m.caloriesKcal}kcal: ${m.items.join('、')} (P${m.proteinG}/C${m.carbsG}/F${m.fatG})`);
+      });
+      if (n.tips?.length) lines.push('', '贴士:', ...n.tips.map((t) => `- ${t}`));
+    }
+    if (r.structured.disclaimer) lines.push('', r.structured.disclaimer);
+  } else {
+    lines.push('', r.plan);
+  }
+  return lines.join('\n');
+}
